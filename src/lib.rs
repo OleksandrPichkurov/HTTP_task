@@ -1,8 +1,10 @@
 use std::env;
+use std::io::Error;
 use std::io::prelude::*;
 use std::net::{TcpListener, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::net::TcpStream;
 use std::fs;
+use std::path::PathBuf;
 use std::thread;
 use std::sync::mpsc;
 use std::sync::Arc;
@@ -56,36 +58,71 @@ pub fn run(port : String, folder : String) {
     }
 }
 
+fn folder_contents(path: &Path) -> Result<Vec<PathBuf>, Error> {
+    Ok(fs::read_dir(path)?
+        .into_iter()
+        .filter(|r| r.is_ok())
+        .map(|r| r.unwrap().path())
+        .collect())
+}
+
+// fn search(filename: String){
+//     let root_folder = env::home_dir().unwrap();
+//     let folders: Vec<PathBuf> = search_folders(&root_folder).unwrap();
+//     let mut finded = true;
+//     let mut a;
+//     while finded {
+//         a = folders.clone().iter().filter(|i| i.is_dir()).map(|i| search_folders(&i).unwrap()).collect::<Vec<Vec<PathBuf>>>();
+//         println!("{:?}", &a);
+//         finded = false;
+//     }
+//     let b = a.retain(|x| x == filename);
+//     println!("{:?}", b)
+// }
+
 fn handle_connection(mut stream: TcpStream, folder: String) {
     let mut buffer = [0; 1024];
 
     stream.read(&mut buffer).unwrap();
     let main_page = b"GET / HTTP/1.1\r\n";
     let path = Path::new(&folder);
-    let root_folder = env::home_dir().unwrap();
-    let path = path.join(root_folder).join(path);
-
-    let folder = format!("GET /{} HTTP/1.1\r\n", folder);
-
+    let ff = String::from_utf8_lossy(&buffer[path.to_str().unwrap().len()+4..]);
+    let file_name = ff.split_whitespace().next().unwrap();
+    let ss = format!("GET {}{} HTTP/1.1\r\n", &folder, file_name);
 
     let (status_line, filename) = if buffer.starts_with(main_page) {
         ("HTTP/1.1 200 OK", "hello.html")
-    } else if buffer.starts_with(folder.as_bytes()) {
+    } else if buffer.starts_with(ss.as_bytes()){
         ("HTTP/1.1 200 OK", "")
     } else {
         ("HTTP/1.1 404 NOT FOUND", "404.html")
     };
     if filename.len() == 0 {
-        let contents = fs::read(path).unwrap();
-        let response = format!(
-            "{}\r\nContent-Disposition: attachment\r\nContent-Length: {}\r\n\r\n",
-            status_line,
-            contents.len(),
-        );
-        stream.write(response.as_bytes()).unwrap();
-        stream.write_all(&contents).unwrap();
-        stream.flush().unwrap();
+        let vec_of_folders  = folder_contents(&path).unwrap();
+        let path_to_file = vec_of_folders.iter().position(|x| x.ends_with(file_name));
+        if path_to_file.is_none() {
+            let contents = fs::read_to_string("400.html").unwrap();
+            let response = format!(
+                "{}\r\nContent-Length: {}\r\n\r\n{}",
+                status_line,
+                contents.len(),
+                contents
+            );
+            stream.write(response.as_bytes()).unwrap();
+            stream.flush().unwrap();
+        } else {
+            let contents = fs::read(vec_of_folders.get(path_to_file.unwrap()).unwrap()).unwrap();
+            let response = format!(
+                "{}\r\nContent-Disposition: attachment\r\nContent-Length: {}\r\n\r\n",
+                status_line,
+                contents.len(),
+            );
+            stream.write(response.as_bytes()).unwrap();
+            stream.write_all(&contents).unwrap();
+            stream.flush().unwrap();
+        }
     } else {
+        println!("tam");
         let contents = fs::read_to_string(filename).unwrap();
         let response = format!(
             "{}\r\nContent-Length: {}\r\n\r\n{}",
