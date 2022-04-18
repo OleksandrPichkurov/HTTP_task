@@ -1,5 +1,6 @@
 # HTTP_task
-How to run:
+1. How to run:
 * cargo run 8080 Downloads/foo.txt
-Url for getting file.
+
+2.Url for getting file.
 * http://ip:8080/Downloads/foo.txt
