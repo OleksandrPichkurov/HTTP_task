@@ -10,6 +10,12 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::path::Path;
+
+
+const OK:&str = "HTTP/1.1 200 OK";
+const NOT_FOUND:&str = "HTTP/1.1 404 Not Found";
+const BAD_REQUEST:&str = "HTTP/1.1 400 Bad Request";
+
 pub struct Params {
     pub port: String,
     pub folder: String,
@@ -66,19 +72,21 @@ fn folder_contents(path: &Path) -> Result<Vec<PathBuf>, Error> {
         .collect())
 }
 
-// fn search(filename: String){
-//     let root_folder = env::home_dir().unwrap();
-//     let folders: Vec<PathBuf> = search_folders(&root_folder).unwrap();
-//     let mut finded = true;
-//     let mut a;
-//     while finded {
-//         a = folders.clone().iter().filter(|i| i.is_dir()).map(|i| search_folders(&i).unwrap()).collect::<Vec<Vec<PathBuf>>>();
-//         println!("{:?}", &a);
-//         finded = false;
-//     }
-//     let b = a.retain(|x| x == filename);
-//     println!("{:?}", b)
-// }
+fn handle_response(status_line: &str, filename: &str) -> String{
+    if filename.len() > 0{
+        let contents = fs::read_to_string(filename).unwrap();
+        format!(
+            "{}\r\nContent-Length: {}\r\n\r\n{}",
+            status_line,
+            contents.len(),
+            contents
+        )
+    } else {
+        format!(
+            "{}\r\nContent-Disposition: attachment\r\nContent-Length: \r\n\r\n", OK
+        )
+    }
+}
 
 fn handle_connection(mut stream: TcpStream, folder: String) {
     let mut buffer = [0; 1024];
@@ -89,51 +97,34 @@ fn handle_connection(mut stream: TcpStream, folder: String) {
     let ff = String::from_utf8_lossy(&buffer[path.to_str().unwrap().len()+4..]);
     let file_name = ff.split_whitespace().next().unwrap();
     let ss = format!("GET {}{} HTTP/1.1\r\n", &folder, file_name);
+    let mut filename = false;
 
-    let (status_line, filename) = if buffer.starts_with(main_page) {
-        ("HTTP/1.1 200 OK", "hello.html")
+    let response = if buffer.starts_with(main_page) {
+        handle_response(OK, "hello.html")
     } else if buffer.starts_with(ss.as_bytes()){
-        ("HTTP/1.1 200 OK", "")
+        filename = true;
+        format!(
+            "{}\r\nContent-Disposition: attachment\r\nContent-Length:\r\n\r\n", OK
+        )
     } else {
-        ("HTTP/1.1 404 NOT FOUND", "404.html")
+        handle_response(BAD_REQUEST, "400.html")
     };
-    if filename.len() == 0 {
+
+    if filename {
         let vec_of_folders  = folder_contents(&path).unwrap();
-        let path_to_file = vec_of_folders.iter().position(|x| x.ends_with(file_name));
-        if path_to_file.is_none() {
-            let contents = fs::read_to_string("400.html").unwrap();
-            let response = format!(
-                "{}\r\nContent-Length: {}\r\n\r\n{}",
-                status_line,
-                contents.len(),
-                contents
-            );
-            stream.write(response.as_bytes()).unwrap();
-            stream.flush().unwrap();
-        } else {
-            let contents = fs::read(vec_of_folders.get(path_to_file.unwrap()).unwrap()).unwrap();
-            let response = format!(
-                "{}\r\nContent-Disposition: attachment\r\nContent-Length: {}\r\n\r\n",
-                status_line,
-                contents.len(),
-            );
+        if let Some(path_to_file) = vec_of_folders.iter().position(|x| x.ends_with(file_name)){
+            let contents = fs::read(vec_of_folders.get(path_to_file).unwrap()).unwrap();
             stream.write(response.as_bytes()).unwrap();
             stream.write_all(&contents).unwrap();
-            stream.flush().unwrap();
+            stream.flush().unwrap()
+        } else {
+            let response = handle_response(NOT_FOUND, "404.html");
+            stream.write(response.as_bytes()).unwrap();
+            stream.flush().unwrap()
         }
-    } else {
-        println!("tam");
-        let contents = fs::read_to_string(filename).unwrap();
-        let response = format!(
-            "{}\r\nContent-Length: {}\r\n\r\n{}",
-            status_line,
-            contents.len(),
-            contents
-        );
-        stream.write(response.as_bytes()).unwrap();
-        stream.flush().unwrap();
-
     }
+    stream.write(response.as_bytes()).unwrap();
+    stream.flush().unwrap();
 }
 
 type Job = Box<dyn FnOnce() + Send + 'static>;
