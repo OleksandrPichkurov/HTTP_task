@@ -1,7 +1,15 @@
 use std::env;
 use std::process;
 
-use web3::Params;
+mod tcp_server;
+mod param;
+mod thread;
+mod resource;
+mod handlers;
+mod logs;
+
+use crate::tcp_server::Server;
+use crate::param::Params;
 
 fn main() {
     let params = Params::new(env::args()).unwrap_or_else(|err| {
@@ -9,5 +17,6 @@ fn main() {
         process::exit(1);
     });
 
-    web3::run(params.port, params.folder);
+    Server::run(params);
+
 }
