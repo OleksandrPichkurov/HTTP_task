@@ -36,7 +36,7 @@ pub fn handle_connection(mut stream: TcpStream, folder: &String) {
         if let Some(path_to_file) = vec_of_folders.iter().position(|x| x.ends_with(file_name)){
             let contents = fs::read(vec_of_folders.get(path_to_file).unwrap()).unwrap();
             stream.write(response.response.as_bytes()).unwrap();
-            contents.into_iter().for_each( |e| {stream.write(&[e]).unwrap();});
+            contents.into_iter().for_each( |e| {stream.write(&[e]).unwrap();}); // still fills the memory by file size
             stream.flush().unwrap()
         } else {
             let response = Response::new(NOT_FOUND, "404.html");
